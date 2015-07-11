@@ -3,7 +3,7 @@
     * SQLITE has been the fastest and very powerful database language for samp!
 	* This include allows you to write and run necessary queries without any SQL language
 	* This is fast and has wide range of options and functions.
-	* Also, this supports multiple SQL file handling at one time.
+	* Also, this supports multiple SQL tables handling at one time.
 
 	Author: (creator)
  	* Gammix
@@ -30,6 +30,7 @@ native DB::GetStringEntry(table, key, coloumn[], str[], len = sizeof(str));
 native DB::SetIntEntry(table, key, coloumn[], value);
 native DB::SetFloatEntry(table, key, coloumn[], Float:value);
 native DB::SetStringEntry(table, key, coloumn[], value[]);
+native DB::RunQuery(query[]);
 native _
 native DB::Hash(buffer[], len = sizeof(buffer), const str[]);
 native DB::Escape(text[]);
@@ -44,8 +45,8 @@ native DB::CountColoumns(table);
 #define MAX_TABLES               	2 //max number of tables a database can have
 #define MAX_TABLE_NAME           	25 //max size of table's name
 
-#define MAX_COLOUMNS                20 //max coloumns a record can have
-#define MAX_COLOUMN_NAME            50 //max coloumn name length
+#define MAX_COLUMNS                	20 //max coloumns a record can have
+#define MAX_COLUMN_NAME            	50 //max coloumn name length
 
 #define MAX_VALUE_SIZE            	50 //max value size (actually this is just used in setting default values)
 
@@ -71,13 +72,13 @@ enum DB_COLOUMN_TYPES
 
 //
 
-enum DB_TABLE_COLOUMN_ENUM
+enum DB_TABLE_COLUMN_ENUM
 {
-	e_COLOUMN_NAME[MAX_COLOUMN_NAME],
+	e_COLOUMN_NAME[MAX_COLUMN_NAME],
 	e_COLOUMN_TYPE,
 	bool:e_COLOUMN_EXIST
 };
-private DB_Table_Colorumn[MAX_TABLES][MAX_COLOUMNS][DB_TABLE_COLOUMN_ENUM];
+private DB_Table_Column[MAX_TABLES][MAX_COLUMNS][DB_TABLE_COLUMN_ENUM];
 
 //
 
@@ -137,17 +138,53 @@ private DB::IsValidTable(table)
 
 private DB_COLOUMN_TYPES:DB::GetColoumnType(table, coloumn[])
 {
-    for(new i = 0; i < MAX_COLOUMNS; i++)
+    for(new i = 0; i < MAX_COLUMNS; i++)
 	{
-	    if(DB_Table_Colorumn[table][i][e_COLOUMN_EXIST])
+	    if(DB_Table_Column[table][i][e_COLOUMN_EXIST])
 	    {
-			if(! strcmp(DB_Table_Colorumn[table][i][e_COLOUMN_NAME], coloumn))
+			if(! strcmp(DB_Table_Column[table][i][e_COLOUMN_NAME], coloumn))
 			{
-			    return DB_COLOUMN_TYPES:DB_Table_Colorumn[table][i][e_COLOUMN_TYPE];
+			    return DB_COLOUMN_TYPES:DB_Table_Column[table][i][e_COLOUMN_TYPE];
 			}
 		}
 	}
 	return DB::TYPE_INVALID;
+}
+
+private DB::ReloadTable(table)
+{
+	new DB_Query[350];
+	format(DB_Query, sizeof(DB_Query), "PRAGMA table_info('%s')", DB_Table_General[table][e_TABLE_NAME]);
+
+	new DBResult:DB_Result = DBResult:0;
+    DB_Result = db_query(DB::Get(), DB_Query);
+
+    if(DB_Result)
+	{
+	    new DB_ColoumnName[MAX_COLUMN_NAME];
+
+	    do
+		{
+			if((DB_Index[e_COLOUMN_COUNT][table] + 1) >= MAX_COLUMNS)
+			{
+	    		printf("[easydb.inc] Warning, there are more coloumns in table ''%s'', than MAX_COLUMNS (limit: %i). Please increase the limit!.", DB_Table_General[table][e_TABLE_NAME], MAX_COLUMNS);
+				break;
+			}
+
+			db_get_field(DB_Result, 1, DB_ColoumnName, (MAX_COLUMN_NAME - 1));
+
+			memcpy(DB_Table_Column[table][(DB_Index[e_COLOUMN_COUNT][table]++)][e_COLOUMN_NAME], DB_ColoumnName, .numbytes = (MAX_COLUMN_NAME * (cellbits / 8)));
+		}
+		while(db_next_row(DB_Result));
+
+		db_free_result(DB_Result);
+		return true;
+	}
+	else
+	{
+	    printf("[easydb.inc] The include failed to retrieve info. from table ''%s''. There is a problem with code or probabily with the SQL table!", DB_Table_General[table][e_TABLE_NAME]);
+		return false;
+	}
 }
 
 //main include functions
@@ -165,6 +202,11 @@ stock DB::Open(name[])
 		DB::Close();
 	}
 	
+	if(! fexist(name)) //notifying
+	{
+	    printf("[easydb.inc] The database doesn't exist, the system has created one automatically (''%s'').", name);
+	}
+	
 	new DB:DB_File = db_open(name);
 	if(DB_File)
 	{
@@ -174,7 +216,7 @@ stock DB::Open(name[])
 		}
 		DB_Main[e_DB_ID] = DB_File;
 		DB_Main[e_DB_OPENDED] = true;
-		
+
 		printf("[easydb.inc] Successfully opened database ''%s''.", name);
 		return true;
 	}
@@ -216,6 +258,15 @@ stock DB::VerifyTable(tablename[], keyname[])
 	    return INVALID_TABLE;
 	}
 
+	//check if the table already exists
+	for(new i; i < DB_Index[e_TABLE_COUNT]; i++)
+	{
+		if(! strcmp(DB_Table_General[i][e_TABLE_NAME], tablename, false))
+		{
+		    return true;
+		}
+	}
+
 	DB_Index[e_TABLE_COUNT] += 1;
 	if(DB_Index[e_TABLE_COUNT] >= MAX_TABLES)
 	{
@@ -232,6 +283,9 @@ stock DB::VerifyTable(tablename[], keyname[])
 	format(DB_Table_General[DB_Index[e_TABLE_COUNT]][e_TABLE_NAME], MAX_TABLE_NAME, tablename);
  	format(DB_Table_General[DB_Index[e_TABLE_COUNT]][e_TABLE_KEY_NAME], MAX_TABLE_NAME, keyname);
 	DB_Table_General[DB_Index[e_TABLE_COUNT]][e_TABLE_EXIST] = true;
+
+	DB::ReloadTable(DB_Index[e_TABLE_COUNT]);
+	
 	return DB_Index[e_TABLE_COUNT];
 }
 
@@ -261,14 +315,23 @@ stock DB::VerifyColoumn(table, coloumn[], DB_COLOUMN_TYPES:type, {_,Float }:...)
 		return false;
 	}
 
+	//check if the coloumn already exists
+	for(new i; i < DB_Index[e_COLOUMN_COUNT][table]; i++)
+	{
+		if(! strcmp(DB_Table_Column[table][i][e_COLOUMN_NAME], coloumn, false))
+		{
+		    return true;
+		}
+	}
+
 	new DB_Query[350] = "";
 
 	DB_Index[e_COLOUMN_COUNT][table] += 1;
-	if(DB_Index[e_TABLE_COUNT] >= MAX_COLOUMNS)
+	if(DB_Index[e_TABLE_COUNT] >= MAX_COLUMNS)
 	{
 	    DB_Index[e_COLOUMN_COUNT][table] -= 1;
 	    printf("[easydb.inc] An error has occured, the max columns limit has reached, the script couldn't verify/create the column for table id ''%i''.", table);
-	    print("[easydb.inc] Please increase the limit by changing the value in ''MAX_COLOUMNS''.");
+	    print("[easydb.inc] Please increase the limit by changing the value in ''MAX_COLUMNS''.");
 	    return false;
 	}
 
@@ -277,38 +340,32 @@ stock DB::VerifyColoumn(table, coloumn[], DB_COLOUMN_TYPES:type, {_,Float }:...)
 		case DB::TYPE_NUMBER:
 		{
 			new DB_Default_Value = 0;
-			if(numargs() == 3)
+			if(numargs() != 0)
 			{
-				DB_Default_Value = getarg(2);
+				DB_Default_Value = getarg(3);
 			}
 			format(DB_Query, sizeof(DB_Query), "ALTER TABLE `%s` ADD COLUMN `%s` INTEGER DEFAULT(%d)", DB_Table_General[table][e_TABLE_NAME], coloumn, DB_Default_Value);
 		}
 		case DB::TYPE_FLOAT:
 		{
 			new Float:DB_Default_Value = 0.0;
-			if(numargs() == 3)
+			if(numargs() != 0)
 			{
-				DB_Default_Value = Float:getarg(2);
+				DB_Default_Value = Float:getarg(3);
 			}
 			format(DB_Query, sizeof(DB_Query), "ALTER TABLE `%s` ADD COLUMN `%s` REAL DEFAULT(%f)", DB_Table_General[table][e_TABLE_NAME], coloumn, DB_Default_Value);
 		}
 		case DB::TYPE_STRING:
 		{
 			new DB_Default_Value[MAX_VALUE_SIZE] = "";
-			if(numargs() == 3)
+			if(numargs() != 0)
 			{
-			    new length = numargs();
-				new count = 0;
-				while(count += 1)
+			    new loop = (0x-1);
+				while(++loop != 0x100)
 				{
-				    if(count < length)
+				    if(loop < MAX_VALUE_SIZE)
 				    {
-						format(DB_Default_Value, sizeof(DB_Default_Value), "%s", getarg(2, count));
-						if(! strlen(DB_Default_Value))
-						{
-							break;
-						}
-						format(DB_Default_Value, sizeof(DB_Default_Value), "%s%s", DB_Default_Value, getarg(2, count));
+						DB_Default_Value[loop] = getarg(3, loop);
 					}
 				}
 				DB::Escape(DB_Default_Value);
@@ -322,9 +379,9 @@ stock DB::VerifyColoumn(table, coloumn[], DB_COLOUMN_TYPES:type, {_,Float }:...)
 	}
 
 	db_free_result(db_query(DB::Get(), DB_Query));
-	format(DB_Table_Colorumn[table][DB_Index[e_COLOUMN_COUNT][table]][e_COLOUMN_NAME], MAX_COLOUMN_NAME, coloumn);
-	DB_Table_Colorumn[table][DB_Index[e_COLOUMN_COUNT][table]][e_COLOUMN_TYPE] = (_:type);
-	DB_Table_Colorumn[table][DB_Index[e_COLOUMN_COUNT][table]][e_COLOUMN_EXIST] = true;
+	format(DB_Table_Column[table][DB_Index[e_COLOUMN_COUNT][table]][e_COLOUMN_NAME], MAX_COLUMN_NAME, coloumn);
+	DB_Table_Column[table][DB_Index[e_COLOUMN_COUNT][table]][e_COLOUMN_TYPE] = (_:type);
+	DB_Table_Column[table][DB_Index[e_COLOUMN_COUNT][table]][e_COLOUMN_EXIST] = true;
 	return true;
 }
 
@@ -357,7 +414,7 @@ stock DB::RetrieveKey(table, coloumn[], {_,Float }:...)
 	    case DB::TYPE_NUMBER:
 	    {
 	        new DB_Default_Value = 0;
-			if(numargs() == 3)
+			if(numargs() != 0)
 			{
 				DB_Default_Value = getarg(2);
 			}
@@ -370,7 +427,7 @@ stock DB::RetrieveKey(table, coloumn[], {_,Float }:...)
 	    case DB::TYPE_FLOAT:
 	    {
 	        new Float:DB_Default_Value = 0.0;
-			if(numargs() == 3)
+			if(numargs() != 0)
 			{
 				DB_Default_Value = Float:getarg(2);
 			}
@@ -383,20 +440,14 @@ stock DB::RetrieveKey(table, coloumn[], {_,Float }:...)
 	    case DB::TYPE_STRING:
 	    {
 	        new DB_Default_Value[MAX_VALUE_SIZE] = "";
-	        if(numargs() == 3)
+	        if(numargs() != 0)
 			{
-				new length = numargs();
-				new count = 0;
-				while(count += 1)
+			    new loop = (0x-1);
+				while(++loop != 0x100)
 				{
-				    if(count < length)
+				    if(loop < MAX_VALUE_SIZE)
 				    {
-						format(DB_Default_Value, sizeof(DB_Default_Value), "%s", getarg(2, count));
-						if(! strlen(DB_Default_Value))
-						{
-							break;
-						}
-						format(DB_Default_Value, sizeof(DB_Default_Value), "%s%s", DB_Default_Value, getarg(2, count));
+						DB_Default_Value[loop] = getarg(3, loop);
 					}
 				}
 				DB::Escape(DB_Default_Value);
@@ -429,19 +480,19 @@ stock DB::CreateRow(table, coloumn[], {_,Float }:...)
 	//check if database file is opened
 	if(! DB::IsValid())
 	{
-		return INVALID_KEY;
+		return false;
 	}
 
 	//no null strings
 	if(DB::IsNull(coloumn))
 	{
-	    return INVALID_KEY;
+	    return false;
 	}
 
 	//table validity check
 	if(! DB::IsValidTable(table))
 	{
-	    return INVALID_KEY;
+	    return false;
 	}
 	
 	new DB_COLOUMN_TYPES:DB_ColoumnType = DB::GetColoumnType(table, coloumn);
@@ -451,7 +502,7 @@ stock DB::CreateRow(table, coloumn[], {_,Float }:...)
 	    case DB::TYPE_NUMBER:
 	    {
 	        new DB_Default_Value = 0;
-			if(numargs() == 3)
+			if(numargs() != 0)
 			{
 				DB_Default_Value = getarg(2);
 			}
@@ -460,7 +511,7 @@ stock DB::CreateRow(table, coloumn[], {_,Float }:...)
 	    case DB::TYPE_FLOAT:
 	    {
 	        new Float:DB_Default_Value = 0.0;
-			if(numargs() == 3)
+			if(numargs() != 0)
 			{
 				DB_Default_Value = Float:getarg(2);
 			}
@@ -469,20 +520,14 @@ stock DB::CreateRow(table, coloumn[], {_,Float }:...)
 	    case DB::TYPE_STRING:
 	    {
 	        new DB_Default_Value[MAX_VALUE_SIZE] = "";
-	        if(numargs() == 3)
+	        if(numargs() != 0)
 			{
-				new length = numargs();
-				new count = 0;
-				while(count += 1)
+			    new loop = (0x-1);
+				while(++loop != 0x100)
 				{
-				    if(count < length)
+				    if(loop < MAX_VALUE_SIZE)
 				    {
-						format(DB_Default_Value, sizeof(DB_Default_Value), "%s", getarg(2, count));
-						if(! strlen(DB_Default_Value))
-						{
-							break;
-						}
-						format(DB_Default_Value, sizeof(DB_Default_Value), "%s%s", DB_Default_Value, getarg(2, count));
+						DB_Default_Value[loop] = getarg(3, loop);
 					}
 				}
 				DB::Escape(DB_Default_Value);
@@ -496,16 +541,10 @@ stock DB::CreateRow(table, coloumn[], {_,Float }:...)
 
 	if(DB_Result)
 	{
-		db_get_field_assoc(DB_Result, DB_Table_General[table][e_TABLE_KEY_NAME], DB_Query, sizeof(DB_Query));
-		
 		db_free_result(DB_Result);
-
-		if(strval(DB_Query) >= 0)
-		{
-		    return strval(DB_Query);
-		}
+		return true;
  	}
-	return INVALID_KEY;
+	return false;
 }
 
 stock DB::DeleteRow(table, key)
@@ -817,6 +856,29 @@ stock DB::SetStringEntry(table, key, coloumn[], value[])
 	new DBResult:DB_Result = DBResult:0;
 	DB_Result = db_query(DB::Get(), DB_Query);
 
+	if(DB_Result)
+	{
+		db_free_result(DB_Result);
+		return true;
+	}
+	return false;
+}
+
+stock DBResult:DB::RunQuery(query[])
+{
+	//check if database file is opened
+	if(! DB::IsValid())
+	{
+		return false;
+	}
+
+	//no null strings
+	if(DB::IsNull(query))
+	{
+	    return false;
+	}
+
+	new DBResult:DB_Result = db_query(DB::Get(), query);
 	if(DB_Result)
 	{
 		db_free_result(DB_Result);
