@@ -1465,5 +1465,3 @@ dbglobal DB::Escape(str[], ichar = '\'', len = sizeof(str))
 #undef DEFAULT_DATABASE_NAME
 
 #undef INVALID_DB
-#undef DB_INVALID_KEY
-#undef DB_INVALID_TABLE
