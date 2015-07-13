@@ -172,13 +172,13 @@ dbstatic bool:DB::Get()
 		KillTimer(g_DatabaseTimer);
 	}
 
-	g_DatabaseTimer = SetTimer("DB_CloseDatatbase", DB::ALIVE_TIME, false);
+	g_DatabaseTimer = SetTimer("DB_CloseDatabase", DB::ALIVE_TIME, false);
 
 	return true;
 }
 
-forward DB::CloseDatatbase();
-public  DB::CloseDatatbase()
+forward DB::CloseDatabase();
+public  DB::CloseDatabase()
 {
 	g_DatabaseTimer = -1;
 
@@ -359,7 +359,7 @@ dbglobal bool:DB::Open(name[])
 	}
 	g_TableCount = 0;
 
-	print("Easydb.Inc loaded... [Build 1]");
+	print("[easydb.inc] Include loaded (build 1)");
 
 	return true;
 }
@@ -375,7 +375,7 @@ dbglobal bool:DB::Close()
 	{
 		KillTimer(g_DatabaseTimer);
 
-		DB::Close();
+		DB::CloseDatabase();
 	}
 
 	g_Initialized = false;
@@ -440,7 +440,7 @@ dbglobal DB::VerifyTable(const table[], const key[])
 
 	g_TableCount++;
 
-	return g_TableCount;
+	return (g_TableCount - 1);
 }
 
 dbglobal bool:DB::VerifyColumn(table, const column[], DB::e_COLUMN_TYPES:type, { _,Float }:...)
@@ -505,7 +505,7 @@ recheck:
 		{
 			return false;
 		}
-		
+
 		new
 		    i_Type
 		;
@@ -522,9 +522,9 @@ recheck:
 				{
 					i_DefaultValue = getarg(2);
 				}
-				
+
 			    i_Type = _:DB::TYPE_NUMBER;
-			    
+
 				format(g_Query, DB::BUFFER_SIZE, "ALTER TABLE `%s` ADD COLUMN `%s` INTEGER DEFAULT(%d)", g_TableData[table][DB::TABLE_NAME], column, i_DefaultValue);
 			}
 
@@ -588,9 +588,9 @@ recheck:
 		    db_free_result(i_DBResult);
 
 			i_ColumnCreated = true;
-			
+
             DB::SetColumnType(table, column, i_Type);
-            
+
 			DB::ReloadTableInfo(table);
 
 			goto recheck;
@@ -1315,7 +1315,7 @@ dbglobal DBResult:DB::Query(query[], bool:keepresult = false)
 	{
 		SetTimerEx("DB_FreeResult", 2000, false, "i", _:i_DBResult);
 	}
-	
+
 	if (i_DBResult)
 	{
 		return i_DBResult;
@@ -1327,7 +1327,7 @@ forward DB_FreeResult(DBResult:handle);
 public	DB_FreeResult(DBResult:handle)
 {
 	db_free_result(handle);
-	
+
 	return 1;
 }
 
