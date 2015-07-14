@@ -29,9 +29,10 @@ native DB::GetStringEntry(table, key, const column[], str[], len = sizeof(str));
 native DB::SetIntEntry(table, key, const column[], value);
 native DB::SetFloatEntry(table, key, const column[], Float:value);
 native DB::SetStringEntry(table, key, const column[], value[]);
+native DBResult:DB::Query(query[], bool:keepresult = false);
 native DB::CountTables();
 native DB::CountColumns(table);
-native DBResult:DB::Query(query[], bool:keepresult = false);
+native DB::CountRows(table);
 native _
 native DB::Hash(buffer[], len = sizeof(buffer), const str[]);
 native DB::Escape(str[], ichar = '\'', len = sizeof(str));
@@ -1335,7 +1336,7 @@ dbglobal DB::CountTables()
 {
 	if (! g_Initialized)
 	{
-	    return false;
+	    return 0;
  	}
 
 	return g_TableCount;
@@ -1345,15 +1346,43 @@ dbglobal DB::CountColumns(table)
 {
 	if (! g_Initialized)
 	{
-	    return false;
+	    return 0;
  	}
 
  	if (! g_TableData[table][DB::TABLE_NAME][0])
  	{
- 	    return false;
+ 	    return 0;
  	}
 
 	return g_ColumnCount[table];
+}
+
+dbglobal DB::CountRows(table)
+{
+	if (! DB::Get())
+	{
+		return 0;
+	}
+
+ 	if (! g_TableData[table][DB::TABLE_NAME][0])
+ 	{
+ 	    return 0;
+ 	}
+
+	format(g_Query, sizeof(g_Query), "SELECT * FROM `%s` WHERE 1", g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY]);
+
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query),
+		i_Rows = 0
+	;
+	if(i_DBResult)
+	{
+	    i_Rows = db_num_rows(i_DBResult);
+
+	    db_free_result(i_DBResult);
+	}
+
+	return i_Rows;
 }
 
 #if defined WP_Hash
