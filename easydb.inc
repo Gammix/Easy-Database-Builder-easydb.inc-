@@ -923,7 +923,8 @@ dbglobal DB::GetIntEntry(table, key, const column[])
 			}
 
 			new
-				DBResult:i_DBResult = db_query(g_Database, g_Query)
+				DBResult:i_DBResult = db_query(g_Database, g_Query),
+				i_Value = 0
 			;
 
 			if (i_DBResult)
@@ -932,13 +933,9 @@ dbglobal DB::GetIntEntry(table, key, const column[])
 				{
 					i_Value = db_get_field_int(i_DBResult, 0);
 				}
-				else
-				{
-					return false;
-				}
 
 				db_free_result(i_DBResult);
-
+				
 				return i_Value;
 			}
 			else
@@ -995,27 +992,20 @@ dbglobal Float:DB::GetFloatEntry(table, key, const column[])
 			}
 
 			new
-				DBResult:i_DBResult = db_query(g_Database, g_Query)
+				DBResult:i_DBResult = db_query(g_Database, g_Query),
+				Float:i_Value = 0.0
 			;
 
 			if (i_DBResult)
 			{
 				if (db_num_rows(i_DBResult) == 1)
 				{
-					db_get_field(i_DBResult, 0, g_Query, DB::BUFFER_SIZE);
-				}
-				else
-				{
-					g_Query[0] = EOS;
+					i_Value = db_get_field_float(i_DBResult, 0);
 				}
 
 				db_free_result(i_DBResult);
 
-				if (g_Query[0])
-				{
-					return floatstr(g_Query);
-				}
-				return 0.0;
+				return i_Value;
 			}
 			else
 			{
