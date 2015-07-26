@@ -519,9 +519,9 @@ recheck:
 					i_DefaultValue = 0
 				;
 
-				if (numargs() == 3)
+				if (numargs() == 4)
 				{
-					i_DefaultValue = getarg(2);
+					i_DefaultValue = getarg(3);
 				}
 
 			    i_Type = _:DB::TYPE_NUMBER;
@@ -535,9 +535,9 @@ recheck:
 					Float:i_DefaultValue = 0.0
 				;
 
-				if (numargs() != 3)
+				if (numargs() != 4)
 				{
-					i_DefaultValue = Float:getarg(2);
+					i_DefaultValue = Float:getarg(3);
 				}
 
 			    i_Type = _:DB::TYPE_FLOAT;
@@ -551,7 +551,7 @@ recheck:
 					i_DefaultValue[DB::MAX_ENTRY_STRING * 2] = ""
 				;
 
-				if (numargs() == 3)
+				if (numargs() == 4)
 				{
 				    new
 						i_Loop = (0x-1)
@@ -560,7 +560,7 @@ recheck:
 					{
 					    if(i_Loop < DB::MAX_ENTRY_STRING)
 					    {
-							i_DefaultValue[i_Loop] = getarg(2, i_Loop);
+							i_DefaultValue[i_Loop] = getarg(3, i_Loop);
 						}
 					}
 
@@ -930,20 +930,16 @@ dbglobal DB::GetIntEntry(table, key, const column[])
 			{
 				if (db_num_rows(i_DBResult) == 1)
 				{
-					db_get_field(i_DBResult, 0, g_Query, DB::BUFFER_SIZE);
+					i_Value = db_get_field_int(i_DBResult, 0);
 				}
 				else
 				{
-					g_Query[0] = EOS;
+					return false;
 				}
 
 				db_free_result(i_DBResult);
 
-				if (g_Query[0])
-				{
-					return strval(g_Query);
-				}
-				return 0;
+				return i_Value;
 			}
 			else
 			{
@@ -1387,8 +1383,18 @@ dbglobal DB::CountRows(table)
 
 #if defined WP_Hash
 
-	//declare DB::Hash as WP_Hash only if the plugin is loaded before hte include
-	native DB::Hash(buffer[], len = sizeof(buffer), const str[]) = WP_Hash;
+	//declare DB::Hash as WP_Hash only if the plugin is loaded before the include
+    dbglobal DB::Hash(buffer[], len = sizeof(buffer), const str[]) //SAMP 0.3.7 R1 package
+	{
+		return WP_Hash(buffer, len, str);
+	}
+
+#elseif defined SHA256_PassHash
+
+    dbglobal DB::Hash(buffer[], len = sizeof(buffer), str[], salt[] = "78sdjs86d2h") //SAMP 0.3.7 R1 package
+	{
+		return SHA256_PassHash(str, salt, buffer, len);
+	}
 
 #else
 
@@ -1406,8 +1412,8 @@ dbglobal DB::CountRows(table)
 
 	dbglobal DB::Hash(buffer[], len = sizeof(buffer), const str[]) // Y_Less's dad (JSC)
 	{
-		dbstatic charset = \"4YLi6pOX)Mudvbc_IFVB/8HZ\2r(fGjaN0oU9C1Wywnq*smKQRxJDhkAS|53EzglT7tPe";
-		dbstatic cells = 69;
+		static charset[] = \"4YLi6pOX)Mudvbc_IFVB/8HZ\2r(fGjaN0oU9C1Wywnq*smKQRxJDhkAS|53EzglT7tPe";
+		static cells = 69;
 
 		new j = strlen(buffer);
 		new s = j;
