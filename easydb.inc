@@ -33,6 +33,8 @@ native DBResult:DB::Query(query[], bool:keepresult = false);
 native DB::CountTables();
 native DB::CountColumns(table);
 native DB::CountRows(table);
+native DB::MultiSet(table, key, const fmat[], {_,Float}:...);
+native DB::MultiGet(table, key, const fmat[], {_,Float}:...);
 native _
 native DB::Hash(buffer[], len = sizeof(buffer), const str[]);
 native DB::Escape(str[], ichar = '\'', len = sizeof(str));
@@ -73,8 +75,8 @@ native DB::Escape(str[], ichar = '\'', len = sizeof(str));
 	#define DB_MAX_TABLE_NAME  		(16)
 #endif
 
-#if !defined DB_BUFFER_SIZE
-	#define DB_BUFFER_SIZE  		(3072)
+#if !defined DB_MAX_QUERY_SIZE
+	#define DB_MAX_QUERY_SIZE  		(3072)
 #endif
 
 #if !defined DB_ALIVE_TIME
@@ -126,7 +128,7 @@ dbstatic
 	      	g_TableData[DB::MAX_TABLES][DB::e_TABLE_DATA],
 	      	g_TableCount,
 
-	      	g_Query[DB::BUFFER_SIZE]
+	      	g_Query[DB::MAX_QUERY_SIZE]
 ;
 
 //
@@ -251,7 +253,7 @@ dbstatic bool:DB::ReloadTableInfo(table)
 		DBResult:i_DBResult
 	;
 
-	format(g_Query, DB::BUFFER_SIZE, "PRAGMA table_info('%s')", g_TableData[table][DB::TABLE_NAME]);
+	format(g_Query, DB::MAX_QUERY_SIZE, "PRAGMA table_info('%s')", g_TableData[table][DB::TABLE_NAME]);
 	i_DBResult = db_query(g_Database, g_Query);
 
 	if (i_DBResult)
@@ -297,9 +299,11 @@ dbstatic DB::SetColumnType(table, const column[], type)
 	;
 	format(i_String, sizeof(i_String), "%i_%s", table, column);
 
-	setproperty(.name = i_String, .value = type);
-
-	return true;
+	#if defined SetSVarInt
+		return SetSVarInt(i_String, type);
+	#else
+		return setproperty(.name = i_String, .value = type);
+	#endif
 }
 
 dbstatic DB::GetColumnType(table, const column[])
@@ -309,7 +313,11 @@ dbstatic DB::GetColumnType(table, const column[])
 	;
 	format(i_String, sizeof(i_String), "%i_%s", table, column);
 
-	return getproperty(.name = i_String);
+	#if defined GetSVarInt
+		return GetSVarInt(i_String);
+	#else
+		return getproperty(.name = i_String);
+	#endif
 }
 
 //Main include functions
@@ -360,7 +368,7 @@ dbglobal bool:DB::Open(name[])
 	}
 	g_TableCount = 0;
 
-	print("[easydb.inc] Include loaded (build 1)");
+	print("[easydb.inc] Include loaded (build 3)");
 
 	return true;
 }
@@ -418,7 +426,7 @@ dbglobal DB::VerifyTable(const table[], const key[])
 		return DB::INVALID_TABLE;
 	}
 
-	format(g_Query, DB::BUFFER_SIZE, "SELECT * FROM `%s` LIMIT 1", table);
+	format(g_Query, DB::MAX_QUERY_SIZE, "SELECT * FROM `%s` LIMIT 1", table);
 
 	new
 	    DBResult:i_DBResult = db_query(g_Database, g_Query)
@@ -429,7 +437,7 @@ dbglobal DB::VerifyTable(const table[], const key[])
 
 	    DB::Notice("The table \"%s\" doesn't exist; attempting to create it.", table);
 
-		format(g_Query, DB::BUFFER_SIZE, "CREATE TABLE `%s` (`%s` INTEGER PRIMARY KEY)", table, key);
+		format(g_Query, DB::MAX_QUERY_SIZE, "CREATE TABLE `%s` (`%s` INTEGER PRIMARY KEY)", table, key);
 
 		db_free_result(db_query(g_Database, g_Query));
 	}
@@ -490,7 +498,7 @@ recheck:
 	{
 		if (! strcmp(g_ColumnNames[table][i], column))
 		{
-			if(DB::GetColumnType(table, column) != _:type)
+			if (DB::GetColumnType(table, column) != _:type)
 			{
             	DB::SetColumnType(table, column, _:type);
 			}
@@ -526,7 +534,7 @@ recheck:
 
 			    i_Type = _:DB::TYPE_NUMBER;
 
-				format(g_Query, DB::BUFFER_SIZE, "ALTER TABLE `%s` ADD COLUMN `%s` INTEGER DEFAULT(%d)", g_TableData[table][DB::TABLE_NAME], column, i_DefaultValue);
+				format(g_Query, DB::MAX_QUERY_SIZE, "ALTER TABLE `%s` ADD COLUMN `%s` INTEGER DEFAULT(%d)", g_TableData[table][DB::TABLE_NAME], column, i_DefaultValue);
 			}
 
 			case DB::TYPE_FLOAT:
@@ -542,7 +550,7 @@ recheck:
 
 			    i_Type = _:DB::TYPE_FLOAT;
 
-				format(g_Query, DB::BUFFER_SIZE, "ALTER TABLE `%s` ADD COLUMN `%s` REAL DEFAULT(%f)", g_TableData[table][DB::TABLE_NAME], column, i_DefaultValue);
+				format(g_Query, DB::MAX_QUERY_SIZE, "ALTER TABLE `%s` ADD COLUMN `%s` REAL DEFAULT(%f)", g_TableData[table][DB::TABLE_NAME], column, i_DefaultValue);
 			}
 
 			case DB::TYPE_STRING:
@@ -571,7 +579,7 @@ recheck:
 
 			    i_Type = _:DB::TYPE_STRING;
 
-				format(g_Query, DB::BUFFER_SIZE, "ALTER TABLE `%s` ADD COLUMN `%s` TEXT DEFAULT('%s')", g_TableData[table][DB::TABLE_NAME], column, i_DefaultValue);
+				format(g_Query, DB::MAX_QUERY_SIZE, "ALTER TABLE `%s` ADD COLUMN `%s` TEXT DEFAULT('%s')", g_TableData[table][DB::TABLE_NAME], column, i_DefaultValue);
 			}
 
 			default:
@@ -584,7 +592,7 @@ recheck:
 			DBResult:i_DBResult = db_query(g_Database, g_Query)
 		;
 
-		if(i_DBResult)
+		if (i_DBResult)
 		{
 		    db_free_result(i_DBResult);
 
@@ -629,98 +637,89 @@ dbglobal DB::RetrieveKey(table, const column[], { _,Float }:...)
 		return DB::INVALID_KEY;
 	}
 
-	for (new i; i < g_ColumnCount[table]; i++)
+	switch (DB::GetColumnType(table, column))
 	{
-	    if (! strcmp(g_ColumnNames[table][i], column))
-	    {
-			switch(DB::GetColumnType(table, g_ColumnNames[table][i]))
+ 		case DB::TYPE_NUMBER:
+   		{
+			if (numargs() != 3)
 			{
-			    case DB::TYPE_NUMBER:
-			    {
-					if (numargs() != 3)
-					{
-						return DB::INVALID_KEY;
-					}
-					else
-					{
-						format(g_Query, DB::BUFFER_SIZE, "SELECT `%s` FROM `%s` WHERE `%s` = '%i'", g_TableData[table][DB::TABLE_KEY], g_TableData[table][DB::TABLE_NAME], column, getarg(2));
-			        }
-				}
-
-			    case DB::TYPE_FLOAT:
-			    {
-					if (numargs() != 3)
-					{
-						return DB::INVALID_KEY;
-					}
-					else
-					{
-                    	format(g_Query, DB::BUFFER_SIZE, "SELECT `%s` FROM `%s` WHERE `%s` = '%f'", g_TableData[table][DB::TABLE_KEY], g_TableData[table][DB::TABLE_NAME], column, Float:getarg(2));
-					}
-				}
-
-			    case DB::TYPE_STRING:
-			    {
-					if (numargs() != 3)
-					{
-						return DB::INVALID_KEY;
-					}
-					else
-					{
-						new
-			            	i_String[DB::MAX_ENTRY_STRING]
-						;
-						new
-							i_Loop = (0x-1)
-						;
-						while (++i_Loop != 0x100)
-						{
-						    if(i_Loop < DB::MAX_ENTRY_STRING)
-						    {
-								i_String[i_Loop] = getarg(2, i_Loop);
-							}
-						}
-
-						i_String[DB::MAX_ENTRY_STRING - 1] = EOS;
-
-						DB::Escape(i_String);
-
-						format(g_Query, DB::BUFFER_SIZE, "SELECT `%s` FROM `%s` WHERE `%s` = '%s' COLLATE NOCASE", g_TableData[table][DB::TABLE_KEY], g_TableData[table][DB::TABLE_NAME], column, i_String);
-					}
-     			}
-
-     			default:
-     			{
-     			    return DB::INVALID_KEY;
-     			}
-			}
-
-			new
-				DBResult:i_DBResult = db_query(g_Database, g_Query)
-			;
-
-			if (i_DBResult)
-			{
-				new
-					i_Key = DB::INVALID_KEY
-				;
-				if (db_num_rows(i_DBResult) >= 1)
-				{
-					db_get_field(i_DBResult, 0, g_Query, DB::BUFFER_SIZE);
-					i_Key = strval(g_Query);
-				}
-
-				db_free_result(i_DBResult);
-
-				return i_Key;
+				return DB::INVALID_KEY;
 			}
 			else
 			{
-	    		return DB::INVALID_KEY;
+				format(g_Query, DB::MAX_QUERY_SIZE, "SELECT `%s` FROM `%s` WHERE `%s` = '%i'", g_TableData[table][DB::TABLE_KEY], g_TableData[table][DB::TABLE_NAME], column, getarg(2));
+     		}
+		}
+
+	    case DB::TYPE_FLOAT:
+	    {
+			if (numargs() != 3)
+			{
+				return DB::INVALID_KEY;
 			}
-	    }
+			else
+			{
+                  	format(g_Query, DB::MAX_QUERY_SIZE, "SELECT `%s` FROM `%s` WHERE `%s` = '%f'", g_TableData[table][DB::TABLE_KEY], g_TableData[table][DB::TABLE_NAME], column, Float:getarg(2));
+			}
+		}
+
+	    case DB::TYPE_STRING:
+	    {
+			if (numargs() != 3)
+			{
+				return DB::INVALID_KEY;
+			}
+			else
+			{
+				new
+	            	i_String[DB::MAX_ENTRY_STRING],
+					i_Loop = (0x-1)
+				;
+				while (++i_Loop != 0x100)
+				{
+				    if(i_Loop < DB::MAX_ENTRY_STRING)
+				    {
+						i_String[i_Loop] = getarg(2, i_Loop);
+					}
+				}
+
+				i_String[DB::MAX_ENTRY_STRING - 1] = EOS;
+
+				DB::Escape(i_String);
+
+				format(g_Query, DB::MAX_QUERY_SIZE, "SELECT `%s` FROM `%s` WHERE `%s` = '%s' COLLATE NOCASE", g_TableData[table][DB::TABLE_KEY], g_TableData[table][DB::TABLE_NAME], column, i_String);
+			}
+		}
+
+		default:
+		{
+    	    return DB::INVALID_KEY;
+    	}
 	}
-	return DB::INVALID_KEY;
+
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query)
+	;
+
+	if (i_DBResult)
+	{
+		new
+			i_Key = DB::INVALID_KEY
+		;
+		if (db_num_rows(i_DBResult) >= 1)
+		{
+			db_get_field(i_DBResult, 0, g_Query, DB::MAX_QUERY_SIZE);
+			i_Key = strval(g_Query);
+		}
+
+		db_free_result(i_DBResult);
+
+		return i_Key;
+	}
+	else
+	{
+		return DB::INVALID_KEY;
+	}
 }
 
 dbglobal bool:DB::CreateRow(table, const column[], { _,Float }:...)
@@ -750,88 +749,79 @@ dbglobal bool:DB::CreateRow(table, const column[], { _,Float }:...)
 		return false;
 	}
 
-	for (new i; i < g_ColumnCount[table]; i++)
+	switch (DB::GetColumnType(table, column))
 	{
-	    if (! strcmp(g_ColumnNames[table][i], column))
-	    {
-			switch (DB::GetColumnType(table, g_ColumnNames[table][i]))
+ 		case DB::TYPE_NUMBER:
+		{
+			if (numargs() != 3)
 			{
-			    case DB::TYPE_NUMBER:
-			    {
-					if (numargs() != 3)
-					{
-						return false;
-					}
-					else
-					{
-						format(g_Query, DB::BUFFER_SIZE, "INSERT INTO `%s`(`%s`) VALUES('%i')", g_TableData[table][DB::TABLE_NAME], column, getarg(2));
-			        }
-				}
-
-			    case DB::TYPE_FLOAT:
-			    {
-					if (numargs() != 3)
-					{
-						return false;
-					}
-					else
-					{
-                    	format(g_Query, DB::BUFFER_SIZE, "INSERT INTO `%s`(`%s`) VALUES('%f')", g_TableData[table][DB::TABLE_NAME], column, Float:getarg(2));
-			        }
-				}
-
-			    case DB::TYPE_STRING:
-			    {
-					if (numargs() != 3)
-					{
-						return false;
-					}
-					else
-					{
-						new
-			            	i_String[DB::MAX_ENTRY_STRING]
-						;
-						new
-							i_Loop = (0x-1)
-						;
-						while (++i_Loop != 0x100)
-						{
-						    if (i_Loop < DB::MAX_ENTRY_STRING)
-						    {
-								i_String[i_Loop] = getarg(2, i_Loop);
-							}
-						}
-
-						i_String[DB::MAX_ENTRY_STRING - 1] = EOS;
-
-						DB::Escape(i_String);
-
-						format(g_Query, DB::BUFFER_SIZE, "INSERT INTO `%s`(`%s`) VALUES('%s')", g_TableData[table][DB::TABLE_NAME], column, i_String);
-			        }
-     			}
-
-     			default:
-     			{
-     			    return false;
-     			}
-			}
-
-			new
-				DBResult:i_DBResult = db_query(g_Database, g_Query)
-			;
-
-			if (i_DBResult)
-			{
-				db_free_result(i_DBResult);
-				return true;
+				return false;
 			}
 			else
 			{
-			    return false;
+				format(g_Query, DB::MAX_QUERY_SIZE, "INSERT INTO `%s`(`%s`) VALUES('%i')", g_TableData[table][DB::TABLE_NAME], column, getarg(2));
 			}
-	    }
+		}
+
+	    case DB::TYPE_FLOAT:
+	    {
+			if (numargs() != 3)
+			{
+				return false;
+			}
+			else
+			{
+               	format(g_Query, DB::MAX_QUERY_SIZE, "INSERT INTO `%s`(`%s`) VALUES('%f')", g_TableData[table][DB::TABLE_NAME], column, Float:getarg(2));
+	        }
+		}
+
+	    case DB::TYPE_STRING:
+	    {
+			if (numargs() != 3)
+			{
+				return false;
+			}
+			else
+			{
+				new
+	            	i_String[DB::MAX_ENTRY_STRING],
+					i_Loop = (0x-1)
+				;
+				while (++i_Loop != 0x100)
+				{
+				    if (i_Loop < DB::MAX_ENTRY_STRING)
+				    {
+						i_String[i_Loop] = getarg(2, i_Loop);
+					}
+				}
+
+				i_String[DB::MAX_ENTRY_STRING - 1] = EOS;
+
+				DB::Escape(i_String);
+
+				format(g_Query, DB::MAX_QUERY_SIZE, "INSERT INTO `%s`(`%s`) VALUES('%s')", g_TableData[table][DB::TABLE_NAME], column, i_String);
+	        }
+		}
+
+    	default:
+		{
+    	    return false;
+    	}
 	}
-	return false;
+
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query)
+	;
+
+	if (i_DBResult)
+	{
+		db_free_result(i_DBResult);
+		return true;
+	}
+	else
+	{
+	    return false;
+	}
 }
 
 dbglobal DB::DeleteRow(table, key)
@@ -856,7 +846,7 @@ dbglobal DB::DeleteRow(table, key)
 		return false;
 	}
 
-	format(g_Query, DB::BUFFER_SIZE, "DELETE FROM `%s` WHERE `%s`='%i'", g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY], key);
+	format(g_Query, DB::MAX_QUERY_SIZE, "DELETE FROM `%s` WHERE `%s`='%i'", g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY], key);
 
 	new
 		DBResult:i_DBResult = db_query(g_Database, g_Query)
@@ -905,46 +895,39 @@ dbglobal DB::GetIntEntry(table, key, const column[])
 		return 0;
 	}
 
-	for (new i; i < g_ColumnCount[table]; i++)
+	switch (DB::GetColumnType(table, column))
 	{
-	    if (! strcmp(g_ColumnNames[table][i], column))
-	    {
-			switch (DB::GetColumnType(table, g_ColumnNames[table][i]))
-			{
-			    case DB::TYPE_NUMBER:
-			    {
-					format(g_Query, DB::BUFFER_SIZE, "SELECT `%s` FROM `%s` WHERE `%s`='%d'", column, g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY], key);
-				}
+ 		case DB::TYPE_NUMBER:
+		{
+			format(g_Query, DB::MAX_QUERY_SIZE, "SELECT `%s` FROM `%s` WHERE `%s`='%d'", column, g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY], key);
+		}
 
-     			default:
-     			{
-     			    return 0;
-     			}
-			}
-
-			new
-				DBResult:i_DBResult = db_query(g_Database, g_Query),
-				i_Value = 0
-			;
-
-			if (i_DBResult)
-			{
-				if (db_num_rows(i_DBResult) == 1)
-				{
-					i_Value = db_get_field_int(i_DBResult, 0);
-				}
-
-				db_free_result(i_DBResult);
-				
-				return i_Value;
-			}
-			else
-			{
-			    return 0;
-			}
-	    }
+     	default:
+     	{
+		    return 0;
+		}
 	}
-	return 0;
+
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query),
+		i_Value = 0
+	;
+
+	if (i_DBResult)
+	{
+		if (db_num_rows(i_DBResult) == 1)
+		{
+			i_Value = db_get_field_int(i_DBResult, 0);
+		}
+
+		db_free_result(i_DBResult);
+
+		return i_Value;
+	}
+	else
+	{
+ 		return 0;
+	}
 }
 
 dbglobal Float:DB::GetFloatEntry(table, key, const column[])
@@ -974,46 +957,40 @@ dbglobal Float:DB::GetFloatEntry(table, key, const column[])
 		return 0.0;
 	}
 
-	for (new i; i < g_ColumnCount[table]; i++)
+	switch (DB::GetColumnType(table, column))
 	{
-	    if (! strcmp(g_ColumnNames[table][i], column))
-	    {
-			switch (DB::GetColumnType(table, g_ColumnNames[table][i]))
-			{
-			    case DB::TYPE_FLOAT:
-			    {
-					format(g_Query, DB::BUFFER_SIZE, "SELECT `%s` FROM `%s` WHERE `%s`='%d'", column, g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY], key);
-				}
+ 		case DB::TYPE_FLOAT:
+		{
+			format(g_Query, DB::MAX_QUERY_SIZE, "SELECT `%s` FROM `%s` WHERE `%s`='%d'", column, g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY], key);
+		}
 
-     			default:
-     			{
-     			    return 0.0;
-     			}
-			}
-
-			new
-				DBResult:i_DBResult = db_query(g_Database, g_Query),
-				Float:i_Value = 0.0
-			;
-
-			if (i_DBResult)
-			{
-				if (db_num_rows(i_DBResult) == 1)
-				{
-					i_Value = db_get_field_float(i_DBResult, 0);
-				}
-
-				db_free_result(i_DBResult);
-
-				return i_Value;
-			}
-			else
-			{
-			    return 0.0;
-			}
-	    }
+		default:
+     	{
+		    return 0.0;
+		}
 	}
-	return 0.0;
+	
+
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query),
+		Float:i_Value = 0.0
+	;
+
+	if (i_DBResult)
+	{
+		if (db_num_rows(i_DBResult) == 1)
+		{
+			i_Value = db_get_field_float(i_DBResult, 0);
+		}
+
+		db_free_result(i_DBResult);
+
+		return i_Value;
+	}
+	else
+	{
+  		return 0.0;
+	}
 }
 
 dbglobal bool:DB::GetStringEntry(table, key, const column[], str[], len = sizeof(str))
@@ -1043,53 +1020,46 @@ dbglobal bool:DB::GetStringEntry(table, key, const column[], str[], len = sizeof
  	    return false;
 	}
 
-	for (new i; i < g_ColumnCount[table]; i++)
+	switch (DB::GetColumnType(table, column))
 	{
-	    if (! strcmp(g_ColumnNames[table][i], column))
-	    {
-			switch (DB::GetColumnType(table, g_ColumnNames[table][i]))
-			{
-			    case DB::TYPE_STRING:
-			    {
-					format(g_Query, DB::BUFFER_SIZE, "SELECT `%s` FROM `%s` WHERE `%s`='%d'", column, g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY], key);
-				}
+ 		case DB::TYPE_STRING:
+		{
+			format(g_Query, DB::MAX_QUERY_SIZE, "SELECT `%s` FROM `%s` WHERE `%s`='%d'", column, g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY], key);
+		}
 
-     			default:
-     			{
-			 	    return false;
-     			}
-			}
-
-			new
-				DBResult:i_DBResult = db_query(g_Database, g_Query)
-			;
-
-			if (i_DBResult)
-			{
-				if (db_num_rows(i_DBResult) == 1)
-				{
-					db_get_field(i_DBResult, 0, str, len);
-				}
-				else
-				{
-					str[0] = EOS;
-				}
-
-				db_free_result(i_DBResult);
-
-				if (str[0])
-				{
-					return true;
-				}
-			 	return false;
-			}
-			else
-			{
-			 	return false;
-			}
-	    }
+     	default:
+     	{
+			return false;
+		}
 	}
-    return false;
+	
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query)
+	;
+
+	if (i_DBResult)
+	{
+		if (db_num_rows(i_DBResult) == 1)
+		{
+			db_get_field(i_DBResult, 0, str, len);
+		}
+		else
+		{
+			str[0] = EOS;
+		}
+
+		db_free_result(i_DBResult);
+
+		if (str[0])
+		{
+			return true;
+		}
+ 		return false;
+	}
+	else
+	{
+		return false;
+	}
 }
 
 dbglobal bool:DB::SetIntEntry(table, key, const column[], value)
@@ -1119,40 +1089,33 @@ dbglobal bool:DB::SetIntEntry(table, key, const column[], value)
 		return false;
 	}
 
-	for (new i; i < g_ColumnCount[table]; i++)
+	switch (DB::GetColumnType(table, column))
 	{
-	    if (! strcmp(g_ColumnNames[table][i], column))
+	    case DB::TYPE_NUMBER:
 	    {
-			switch (DB::GetColumnType(table, g_ColumnNames[table][i]))
-			{
-			    case DB::TYPE_NUMBER:
-			    {
-					format(g_Query, DB::BUFFER_SIZE, "UPDATE `%s` SET `%s`='%d' WHERE `%s`='%d'", g_TableData[table][DB::TABLE_NAME], column, value, g_TableData[table][DB::TABLE_KEY], key);
-				}
+			format(g_Query, DB::MAX_QUERY_SIZE, "UPDATE `%s` SET `%s`='%d' WHERE `%s`='%d'", g_TableData[table][DB::TABLE_NAME], column, value, g_TableData[table][DB::TABLE_KEY], key);
+		}
 
-     			default:
-     			{
-     			    return false;
-     			}
-			}
-
-			new
-				DBResult:i_DBResult = db_query(g_Database, g_Query)
-			;
-
-			if (i_DBResult)
-			{
-				db_free_result(i_DBResult);
-
-				return true;
-			}
-			else
-			{
-			    return false;
-			}
-	    }
+		default:
+		{
+		    return false;
+    	}
 	}
-	return false;
+
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query)
+	;
+
+	if (i_DBResult)
+	{
+		db_free_result(i_DBResult);
+
+		return true;
+	}
+	else
+	{
+ 		return false;
+	}
 }
 
 dbglobal bool:DB::SetFloatEntry(table, key, const column[], Float:value)
@@ -1182,40 +1145,33 @@ dbglobal bool:DB::SetFloatEntry(table, key, const column[], Float:value)
 		return false;
 	}
 
-	for (new i; i < g_ColumnCount[table]; i++)
+	switch (DB::GetColumnType(table, column))
 	{
-	    if (! strcmp(g_ColumnNames[table][i], column))
-	    {
-			switch (DB::GetColumnType(table, g_ColumnNames[table][i]))
-			{
-			    case DB::TYPE_FLOAT:
-			    {
-					format(g_Query, DB::BUFFER_SIZE, "UPDATE `%s` SET `%s`='%f' WHERE `%s`='%d'", g_TableData[table][DB::TABLE_NAME], column, value, g_TableData[table][DB::TABLE_KEY], key);
-				}
+		case DB::TYPE_FLOAT:
+  		{
+			format(g_Query, DB::MAX_QUERY_SIZE, "UPDATE `%s` SET `%s`='%f' WHERE `%s`='%d'", g_TableData[table][DB::TABLE_NAME], column, value, g_TableData[table][DB::TABLE_KEY], key);
+		}
 
-     			default:
-     			{
-     			    return false;
-     			}
-			}
-
-			new
-				DBResult:i_DBResult = db_query(g_Database, g_Query)
-			;
-
-			if (i_DBResult)
-			{
-				db_free_result(i_DBResult);
-
-				return true;
-			}
-			else
-			{
-			    return false;
-			}
-	    }
+		default:
+		{
+			return false;
+     	}
 	}
-	return false;
+
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query)
+	;
+
+	if (i_DBResult)
+	{
+		db_free_result(i_DBResult);
+
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }
 
 dbglobal bool:DB::SetStringEntry(table, key, const column[], value[], len = sizeof(value))
@@ -1245,41 +1201,34 @@ dbglobal bool:DB::SetStringEntry(table, key, const column[], value[], len = size
 		return false;
 	}
 
-	for (new i; i < g_ColumnCount[table]; i++)
+	switch (DB::GetColumnType(table, column))
 	{
-	    if (! strcmp(g_ColumnNames[table][i], column))
-	    {
-			switch (DB::GetColumnType(table, g_ColumnNames[table][i]))
-			{
-			    case DB::TYPE_STRING:
-			    {
-					DB::Escape(value, _, len);
-					format(g_Query, DB::BUFFER_SIZE, "UPDATE `%s` SET `%s`='%s' WHERE `%s`='%d'", g_TableData[table][DB::TABLE_NAME], column, value, g_TableData[table][DB::TABLE_KEY], key);
-				}
+ 		case DB::TYPE_STRING:
+		{
+			DB::Escape(value, _, len);
+			format(g_Query, DB::MAX_QUERY_SIZE, "UPDATE `%s` SET `%s`='%s' WHERE `%s`='%d'", g_TableData[table][DB::TABLE_NAME], column, value, g_TableData[table][DB::TABLE_KEY], key);
+		}
 
-     			default:
-     			{
-     			    return false;
-     			}
-			}
-
-			new
-				DBResult:i_DBResult = db_query(g_Database, g_Query)
-			;
-
-			if (i_DBResult)
-			{
-				db_free_result(i_DBResult);
-
-				return true;
-			}
-			else
-			{
-			    return false;
-			}
-	    }
+		default:
+     	{
+		    return false;
+     	}
 	}
-	return false;
+
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query)
+	;
+
+	if (i_DBResult)
+	{
+		db_free_result(i_DBResult);
+
+		return true;
+	}
+	else
+	{
+ 		return false;
+	}
 }
 
 dbglobal DBResult:DB::Query(query[], bool:keepresult = false)
@@ -1461,6 +1410,440 @@ dbglobal DB::Escape(str[], ichar = '\'', len = sizeof(str))
 	return true;
 }
 
+dbglobal bool:DB::MultiSet(table, key, const fmat[], {_,Float}:...)
+{
+ 	if (! g_TableData[table][DB::TABLE_NAME][0])
+ 	{
+ 	    return false;
+ 	}
+
+ 	if (strlen(g_TableData[table][DB::TABLE_NAME]) >= DB::MAX_TABLE_NAME)
+ 	{
+ 	    return false;
+ 	}
+
+	if (! fmat[0])
+	{
+		return false;
+ 	}
+
+	if (! DB::Get())
+	{
+		return false;
+	}
+
+	new
+		i_Index = (0x-1)
+	;
+
+	format(g_Query, DB::MAX_QUERY_SIZE, "UPDATE `%s` SET ", g_TableData[table][DB::TABLE_NAME]);
+
+	new
+		i_Str[100]
+	;
+
+    while (++i_Index < strlen(fmat))
+    {
+        new
+			i_Len = (0x-1),
+			i_ColumnName[0x80]
+		;
+
+        while (++i_Len < 0x80)
+		{
+			i_ColumnName[i_Len] = getarg((3 + (i_Index * 2)), i_Len);
+        }
+		if (! i_ColumnName[0])
+		{
+		    return false;
+		}
+
+		new
+			i_ArgLoop = -1
+		;
+
+		switch (fmat[i_Index])
+        {
+			case 'd', 'i':
+			{
+			    switch (DB::GetColumnType(table, i_ColumnName))
+				{
+					case DB::TYPE_NUMBER:
+	    			{
+						format(i_Str, sizeof(i_Str), "`%s`='%d'", i_ColumnName, getarg(4 + (i_Index * 2)));
+						strcat(g_Query, i_Str);
+
+						if(i_Index == (strlen(fmat) - 1))
+						{
+						    strcat(g_Query, " ");
+						}
+						else
+						{
+							strcat(g_Query, ",");
+						}
+					}
+
+					case DB::TYPE_STRING:
+					{
+					    DB::Notice("DB::MultiSet couldn't write the int value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 's' but found 'i' or 'd'", i_ColumnName);
+					}
+
+					case DB::TYPE_FLOAT:
+					{
+					    DB::Notice("DB::MultiSet couldn't write the int value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 's' but found 'i' or 'd'", i_ColumnName);
+					}
+
+					default:
+					{
+					    DB::Notice("DB::MultiSet couldn't write the int value for column ''%s'', probabily an invalid column.", i_ColumnName);
+					}
+				}
+			}
+			case 'f':
+			{
+			    switch (DB::GetColumnType(table, i_ColumnName))
+				{
+					case DB::TYPE_FLOAT:
+	    			{
+						format(i_Str, sizeof(i_Str), "`%s`='%f'", i_ColumnName, Float:getarg(4 + (i_Index * 2)));
+      					strcat(g_Query, i_Str);
+
+						if(i_Index == (strlen(fmat) - 1))
+						{
+						    strcat(g_Query, " ");
+						}
+						else
+						{
+							strcat(g_Query, ",");
+						}
+					}
+
+					case DB::TYPE_STRING:
+					{
+					    DB::Notice("DB::MultiSet couldn't write the float value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 's' but found 'f'", i_ColumnName);
+					}
+
+					case DB::TYPE_NUMBER:
+					{
+					    DB::Notice("DB::MultiSet couldn't write the float value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 'i' but found 'f'", i_ColumnName);
+					}
+
+					default:
+					{
+					    DB::Notice("DB::MultiSet couldn't write the float value for column ''%s'', probabily an invalid column.", i_ColumnName);
+					}
+				}
+			}
+			case 's':
+			{
+			    switch (DB::GetColumnType(table, i_ColumnName))
+				{
+					case DB::TYPE_STRING:
+	    			{
+					    new
+							i_Extract[DB::MAX_ENTRY_STRING]
+						;
+
+						while (++i_ArgLoop != 0x100)
+						{
+						    if (i_ArgLoop < DB::MAX_ENTRY_STRING)
+						    {
+								i_Extract[i_ArgLoop] = getarg(4 + (i_Index * 2), i_ArgLoop);
+	   						}
+						}
+
+						format(i_Str, sizeof(i_Str), "`%s`='%s'", i_ColumnName, i_Extract);
+						strcat(g_Query, i_Str);
+
+						if(i_Index == (strlen(fmat) - 1))
+						{
+						    strcat(g_Query, " ");
+						}
+						else
+						{
+							strcat(g_Query, ",");
+						}
+					}
+
+					case DB::TYPE_FLOAT:
+					{
+					    DB::Notice("DB::MultiSet couldn't write the string value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 'f' but found 's'", i_ColumnName);
+					}
+
+					case DB::TYPE_NUMBER:
+					{
+					    DB::Notice("DB::MultiSet couldn't write the string value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 'i' but found 's'", i_ColumnName);
+					}
+
+					default:
+					{
+					    DB::Notice("DB::MultiSet couldn't write the string value for column ''%s'', probabily an invalid column.", i_ColumnName);
+					}
+				}
+ 			}
+		}
+	}
+
+	format(i_Str, sizeof(i_Str), "WHERE `%s`='%d'", g_TableData[table][DB::TABLE_KEY], key);
+	strcat(g_Query, i_Str);
+
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query)
+	;
+
+	if (i_DBResult)
+	{
+		db_free_result(i_DBResult);
+
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+dbglobal bool:DB::MultiGet(table, key, const fmat[], {_,Float}:...)
+{
+ 	if (! g_TableData[table][DB::TABLE_NAME][0])
+ 	{
+ 	    return false;
+ 	}
+
+ 	if (strlen(g_TableData[table][DB::TABLE_NAME]) >= DB::MAX_TABLE_NAME)
+ 	{
+ 	    return false;
+ 	}
+
+	if (! fmat[0])
+	{
+		return false;
+ 	}
+
+	if (! DB::Get())
+	{
+		return false;
+	}
+
+	new
+		i_Index = (0x-1)
+	;
+
+	format(g_Query, DB::MAX_QUERY_SIZE, "SELECT ");
+
+	new
+		i_Str[100],
+		i_Len = (0x-1),
+		i_ColumnName[0x80]
+	;
+
+    while (++i_Index < strlen(fmat))
+    {
+		i_Len = (0x-1);
+		i_ColumnName[0] = EOS;
+		
+        while (++i_Len < 0x80)
+		{
+			i_ColumnName[i_Len] = getarg((3 + (i_Index * 2)), i_Len);
+        }
+		if (! i_ColumnName[0])
+		{
+		    return false;
+		}
+
+		new
+			i_ArgLoop = -1
+		;
+
+		switch (fmat[i_Index])
+        {
+			case 'd', 'i':
+			{
+			    switch (DB::GetColumnType(table, i_ColumnName))
+				{
+					case DB::TYPE_NUMBER:
+	    			{
+						format(i_Str, sizeof(i_Str), "`%s`", i_ColumnName);
+						strcat(g_Query, i_Str);
+
+						if(i_Index == (strlen(fmat) - 1))
+						{
+						    strcat(g_Query, " ");
+						}
+						else
+						{
+							strcat(g_Query, ",");
+						}
+					}
+
+					case DB::TYPE_STRING:
+					{
+					    DB::Notice("DB::MultiGet couldn't read the int value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 's' but found 'i' or 'd'", i_ColumnName);
+					}
+
+					case DB::TYPE_FLOAT:
+					{
+					    DB::Notice("DB::MultiGet couldn't read the int value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 's' but found 'i' or 'd'", i_ColumnName);
+					}
+
+					default:
+					{
+					    DB::Notice("DB::MultiGet couldn't read the int value for column ''%s'', probabily an invalid column.", i_ColumnName);
+					}
+				}
+			}
+			case 'f':
+			{
+			    switch (DB::GetColumnType(table, i_ColumnName))
+				{
+					case DB::TYPE_FLOAT:
+	    			{
+						format(i_Str, sizeof(i_Str), "`%s`", i_ColumnName);
+      					strcat(g_Query, i_Str);
+
+						if(i_Index == (strlen(fmat) - 1))
+						{
+						    strcat(g_Query, " ");
+						}
+						else
+						{
+							strcat(g_Query, ",");
+						}
+					}
+
+					case DB::TYPE_STRING:
+					{
+					    DB::Notice("DB::MultiGet couldn't read the float value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 's' but found 'f'", i_ColumnName);
+					}
+
+					case DB::TYPE_NUMBER:
+					{
+					    DB::Notice("DB::MultiGet couldn't read the float value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 'i' but found 'f'", i_ColumnName);
+					}
+
+					default:
+					{
+					    DB::Notice("DB::MultiGet couldn't read the float value for column ''%s'', probabily an invalid column.", i_ColumnName);
+					}
+				}
+			}
+			case 's':
+			{
+			    switch (DB::GetColumnType(table, i_ColumnName))
+				{
+					case DB::TYPE_STRING:
+	    			{
+					    new
+							i_Extract[DB::MAX_ENTRY_STRING]
+						;
+
+						while (++i_ArgLoop != 0x100)
+						{
+						    if (i_ArgLoop < DB::MAX_ENTRY_STRING)
+						    {
+								i_Extract[i_ArgLoop] = getarg(4 + (i_Index * 2), i_ArgLoop);
+	   						}
+						}
+
+						format(i_Str, sizeof(i_Str), "`%s`", i_ColumnName);
+						strcat(g_Query, i_Str);
+
+						if(i_Index == (strlen(fmat) - 1))
+						{
+						    strcat(g_Query, " ");
+						}
+						else
+						{
+							strcat(g_Query, ",");
+						}
+					}
+
+					case DB::TYPE_FLOAT:
+					{
+					    DB::Notice("DB::MultiGet couldn't read the string value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 'f' but found 's'", i_ColumnName);
+					}
+
+					case DB::TYPE_NUMBER:
+					{
+					    DB::Notice("DB::MultiGet couldn't read the string value for column ''%s'', cause invalid type passed in ''fmat[]''. Must be 'i' but found 's'", i_ColumnName);
+					}
+
+					default:
+					{
+					    DB::Notice("DB::MultiGet couldn't read the string value for column ''%s'', probabily an invalid column.", i_ColumnName);
+					}
+				}
+ 			}
+		}
+	}
+
+	format(i_Str, sizeof(i_Str), "FROM `%s` WHERE `%s`='%d'", g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY], key);
+	strcat(g_Query, i_Str);
+
+	new
+		DBResult:i_DBResult = db_query(g_Database, g_Query)
+	;
+
+	if (i_DBResult)
+	{
+	    i_Index = (0x-1);
+	
+	    while (++i_Index < strlen(fmat))
+	    {
+			i_Len = (0x-1);
+			i_ColumnName[0] = EOS;
+			
+	        while (++i_Len < 0x80)
+			{
+				i_ColumnName[i_Len] = getarg((3 + (i_Index * 2)), i_Len);
+	        }
+			if (! i_ColumnName[0])
+			{
+			    return false;
+			}
+
+			new
+				i_ArgLoop = -1
+			;
+
+			switch (fmat[i_Index])
+	        {
+				case 'd', 'i':
+				{
+				    setarg(4 + (i_Index * 2), 0, db_get_field_assoc_int(i_DBResult, i_ColumnName));
+				}
+
+				case 'f':
+				{
+					setarg(4 + (i_Index * 2), 0, _:db_get_field_assoc_float(i_DBResult, i_ColumnName));
+				}
+			
+				case 's':
+				{
+				    new
+						i_Extract[DB::MAX_ENTRY_STRING]
+					;
+					
+					db_get_field_assoc(i_DBResult, i_ColumnName, i_Extract, DB::MAX_ENTRY_STRING);
+
+                    while(strlen(i_Extract) != i_ArgLoop++)
+					{
+						setarg(4 + (i_Index * 2), i_ArgLoop, i_Extract[i_ArgLoop]);
+					}
+	 			}
+			}
+		}
+	
+		db_free_result(i_DBResult);
+
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
 //undefine the private include constants
 #undef dbstatic
 #undef dbglobal
@@ -1479,7 +1862,7 @@ dbglobal DB::Escape(str[], ichar = '\'', len = sizeof(str))
 #undef DB_MAX_TABLES
 #undef DB_MAX_TABLE_NAME
 
-#undef DB_BUFFER_SIZE
+#undef DB_MAX_QUERY_SIZE
 
 #undef DB_ALIVE_TIME
 
