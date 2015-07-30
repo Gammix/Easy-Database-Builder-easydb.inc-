@@ -55,4 +55,12 @@ main()
 	new stringval[25];
 	DB::GetStringEntry(0, i, "string", stringval);
 	printf("Time taken to get string: %i (value: %s)", GetTickCount() - t, stringval);
+
+	t = GetTickCount();
+	DB::MultiSet(0, i, "ifs", "int", 1, "float", 1.0, "string", "str");
+	printf("Time taken to multi-set: %i", GetTickCount() - t, stringval);
+	
+	t = GetTickCount();
+	DB::MultiSet(0, i, "ifs", "int", intval, "float", floatval, "string", stringval);
+	printf("Time taken to multi-set: %i (values: %i, %f, %s)", GetTickCount() - t, intval, floatval, stringval);
 }
