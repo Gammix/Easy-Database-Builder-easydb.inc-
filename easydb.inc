@@ -639,7 +639,7 @@ dbglobal DB::RetrieveKey(table, const column[], { _,Float }:...)
 			return DB::INVALID_KEY;
 	 	}
 	#endif
-	
+
 	if (! DB::Get())
 	{
 		return DB::INVALID_KEY;
@@ -692,7 +692,7 @@ dbglobal DB::RetrieveKey(table, const column[], { _,Float }:...)
 				}
 
 				i_String[DB::MAX_ENTRY_STRING - 1] = EOS;
-				
+
 				format(g_Query, DB::MAX_QUERY_SIZE, "SELECT `%s` FROM `%s` WHERE `%s` = '%q' COLLATE NOCASE", g_TableData[table][DB::TABLE_KEY], g_TableData[table][DB::TABLE_NAME], column, i_String);
 			}
 		}
@@ -751,7 +751,7 @@ dbglobal bool:DB::CreateRow(table, const column[], { _,Float }:...)
 			return false;
 	 	}
 	#endif
-	
+
 	if (! DB::Get())
 	{
 		return false;
@@ -848,7 +848,7 @@ dbglobal DB::DeleteRow(table, key)
 			return false;
 		}
 	#endif
-	
+
 	if (! DB::Get())
 	{
 		return false;
@@ -901,7 +901,7 @@ dbglobal DB::GetIntEntry(table, key, const column[])
 			return 0;
 	 	}
 	#endif
-	
+
 	if (! DB::Get())
 	{
 		return 0;
@@ -923,7 +923,7 @@ dbglobal DB::GetIntEntry(table, key, const column[])
 	#else
         format(g_Query, DB::MAX_QUERY_SIZE, "SELECT `%s` FROM `%s` WHERE `%s`='%d'", column, g_TableData[table][DB::TABLE_NAME], g_TableData[table][DB::TABLE_KEY], key);
 	#endif
-	
+
 	new
 		DBResult:i_DBResult = db_query(g_Database, g_Query),
 		i_Value = 0
@@ -1037,7 +1037,7 @@ dbglobal bool:DB::GetStringEntry(table, key, const column[], str[], len = sizeof
 	 	    return false;
  		}
 	#endif
-	
+
 	if (! DB::Get())
 	{
  	    return false;
@@ -1116,7 +1116,7 @@ dbglobal bool:DB::SetIntEntry(table, key, const column[], value)
 			return false;
 	 	}
 	#endif
-	
+
 	if (! DB::Get())
 	{
 		return false;
@@ -1178,7 +1178,7 @@ dbglobal bool:DB::SetFloatEntry(table, key, const column[], Float:value)
 			return false;
 	 	}
 	#endif
-	
+
 	if (! DB::Get())
 	{
 		return false;
@@ -1217,7 +1217,7 @@ dbglobal bool:DB::SetFloatEntry(table, key, const column[], Float:value)
 	}
 }
 
-dbglobal bool:DB::SetStringEntry(table, key, const column[], value[], len = sizeof(value))
+dbglobal bool:DB::SetStringEntry(table, key, const column[], value[])
 {
     #if (! DB_SPEED_BOOST)
 	 	if (! g_TableData[table][DB::TABLE_NAME][0])
@@ -1240,7 +1240,7 @@ dbglobal bool:DB::SetStringEntry(table, key, const column[], value[], len = size
 			return false;
 	 	}
 	#endif
-	
+
 	if (! DB::Get())
 	{
 		return false;
@@ -1262,7 +1262,7 @@ dbglobal bool:DB::SetStringEntry(table, key, const column[], value[], len = size
 	#else
 		format(g_Query, DB::MAX_QUERY_SIZE, "UPDATE `%s` SET `%s`='%q' WHERE `%s`='%d'", g_TableData[table][DB::TABLE_NAME], column, value, g_TableData[table][DB::TABLE_KEY], key);
 	#endif
-	
+
 	new
 		DBResult:i_DBResult = db_query(g_Database, g_Query)
 	;
@@ -1401,7 +1401,7 @@ dbglobal DB::CountRows(table)
 		return -1;
 	}
 
-	dbglobal DB::Hash(buffer[], len = sizeof(buffer), const str[]) // Y_Less's dad (JSC)
+	dbglobal DB::Hash(buffer[], len = sizeof(buffer), str[]) // Y_Less's dad (JSC)
 	{
 		static charset[] = \"4YLi6pOX)Mudvbc_IFVB/8HZ\2r(fGjaN0oU9C1Wywnq*smKQRxJDhkAS|53EzglT7tPe";
 		static cells = 69;
@@ -1416,9 +1416,9 @@ dbglobal DB::CountRows(table)
 			m = i % len;
 			t = (i >= j) ? charset[(7 * i) % cells] : buffer[i];
 			s = (s + DB::chrfind(t, charset) + 1) % cells;
-			bufferhash[m] = charset[(s + bufferhash[m]) % cells];
+			str[m] = charset[(s + str[m]) % cells];
 		}
-		bufferhash[len] = '\0';
+		str[len] = '\0';
 	}
 
 #endif
@@ -1441,7 +1441,7 @@ dbglobal bool:DB::MultiSet(table, key, const fmat[], {_,Float}:...)
 			return false;
 	 	}
 	#endif
-	
+
 	if (! DB::Get())
 	{
 		return false;
@@ -1690,7 +1690,7 @@ dbglobal bool:DB::MultiGet(table, key, const fmat[], {_,Float}:...)
 			return false;
 	 	}
 	#endif
-	
+
 	if (! DB::Get())
 	{
 		return false;
@@ -2016,7 +2016,7 @@ dbglobal DB::SortIntData(table, const column[], keys[], values[], bool:decending
 			}
 		}
 	#endif
-	
+
 	format(g_Query, DB::MAX_QUERY_SIZE, "SELECT `%s`, `%s` FROM `%s` %s ORDER BY `%s` %s LIMIT %d", g_TableData[table][DB::TABLE_KEY], column, g_TableData[table][DB::TABLE_NAME], conditions, column, (decending == true) ? ("DESC") : ("ASC"), len);
 
 	i_DBResult = db_query(g_Database, g_Query);
