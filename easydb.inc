@@ -1,5 +1,5 @@
 /*
-    Easy Database - SQLITE manager (easydb.inc)
+    Easy Database - SQLITE manager (easydb.inc) - Build 5
     * SQLITE has been the fastest and very powerful database language for samp!
 	* This include allows you to write and run necessary queries without any SQL language
 	* This is fast and has wide range of options and functions.
@@ -37,6 +37,7 @@ native DB::MultiSet(table, key, const fmat[], {_,Float}:...);
 native DB::MultiGet(table, key, const fmat[], {_,Float}:...);
 native DB::SortIntData(table, const column[], keys[], values[], bool:decending = true, const conditions[] = "", len = sizeof(keys));
 native DB::SortFloatData(table, const column[], keys[], Float:values[], bool:decending = true, const conditions[] = "", len = sizeof(keys));
+native DB::GetHighestRegisteredKey(table);
 native DB::Hash(buffer[], len = sizeof(buffer), const str[]);
 */
 
@@ -1380,45 +1381,11 @@ dbglobal DB::CountRows(table)
 		return WP_Hash(buffer, len, str);
 	}
 
-#elseif defined SHA256_PassHash
+#else
 
     dbglobal DB::Hash(buffer[], len = sizeof(buffer), str[], salt[] = "78sdjs86d2h") //SAMP 0.3.7 R1 package
 	{
 		return SHA256_PassHash(str, salt, buffer, len);
-	}
-
-#else
-
-	dbstatic DB::chrfind(needle, haystack[], start = 0) // Y_Less
-	{
-		while(haystack[start])
-		{
-			if(haystack[start++] == needle)
-			{
-				return start - 1;
-			}
-		}
-		return -1;
-	}
-
-	dbglobal DB::Hash(buffer[], len = sizeof(buffer), str[]) // Y_Less's dad (JSC)
-	{
-		static charset[] = \"4YLi6pOX)Mudvbc_IFVB/8HZ\2r(fGjaN0oU9C1Wywnq*smKQRxJDhkAS|53EzglT7tPe";
-		static cells = 69;
-
-		new j = strlen(buffer);
-		new s = j;
-		new t = 0;
-		new m;
-
-		for(new i = 0; i < len || i < j; i++)
-		{
-			m = i % len;
-			t = (i >= j) ? charset[(7 * i) % cells] : buffer[i];
-			s = (s + DB::chrfind(t, charset) + 1) % cells;
-			str[m] = charset[(s + str[m]) % cells];
-		}
-		str[len] = '\0';
 	}
 
 #endif
@@ -2021,7 +1988,7 @@ dbglobal DB::SortIntData(table, const column[], keys[], values[], bool:decending
 
 	i_DBResult = db_query(g_Database, g_Query);
 
-	if (dbrResult)
+	if (i_DBResult)
 	{
 		if (db_num_rows(i_DBResult) > 0)
 		{
@@ -2100,7 +2067,7 @@ dbglobal DB::SortFloatData(table, const column[], keys[], Float:values[], bool:d
 
 	i_DBResult = db_query(g_Database, g_Query);
 
-	if (dbrResult)
+	if (i_DBResult)
 	{
 		if (db_num_rows(i_DBResult) > 0)
 		{
@@ -2125,6 +2092,17 @@ dbglobal DB::SortFloatData(table, const column[], keys[], Float:values[], bool:d
 	}
 
 	return i_Return;
+}
+
+dbglobal DB::GetHighestRegisteredKey(table)
+{
+	new
+	    i_Key[1],
+	    i_Value[1]
+	;
+    DB::SortIntData(table, g_TableData[table][DB::TABLE_KEY], i_Key, i_Value);
+
+	return i_Key[0];
 }
 
 //undefine the private include constants
