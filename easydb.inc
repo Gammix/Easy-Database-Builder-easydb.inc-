@@ -373,7 +373,7 @@ dbglobal bool:DB::Open(name[])
 	}
 	g_TableCount = 0;
 
-	print("[easydb.inc] Include loaded (build 3)");
+	print("[easydb.inc] Include loaded (build 5)");
 
 	return true;
 }
