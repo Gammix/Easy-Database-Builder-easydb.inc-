@@ -547,7 +547,7 @@ recheck:
 					Float:i_DefaultValue = 0.0
 				;
 
-				if (numargs() != 4)
+				if (numargs() == 4)
 				{
 					i_DefaultValue = Float:getarg(3);
 				}
