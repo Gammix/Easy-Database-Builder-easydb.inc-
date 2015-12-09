@@ -796,9 +796,7 @@ dbglobal bool:DB::MultiGet(table, key, const fmat[], {_, Float}:...)
 	strcat(g_Query, str_rowid);
 	strcat(g_Query, "'");
 
-	print(g_Query);
 	result = db_query(g_Database, g_Query);
-	printf("%i", _:result);
 	if (result)
 	{
 	    new str[DB::MAX_ENTRY];
