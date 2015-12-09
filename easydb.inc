@@ -13,6 +13,29 @@
 * - Slice for BUD include as refrence
 */
 
+/*
+native bool:DB::Open(name[]);
+native bool:DB::Close();
+native DB::VerifyTable(const table[], const key[] = "ROW_ID");
+native bool:DB::VerifyColumn(table, const column[], DBType:type, { _,Float }:...);
+native DB::RetrieveKey(table, const column[], { _,Float }:...);
+native bool:DB::CreateRow(table, const column[], { _,Float }:...);
+native bool:DB::DeleteRow(table, key);
+native DB::GetIntEntry(table, key, const column[]);
+native Float:DB::GetFloatEntry(table, key, const column[]);
+native bool:DB::GetStringEntry(table, key, const column[], get[], len = sizeof(get));
+native bool:DB::SetIntEntry(table, key, const column[], value);
+native bool:DB::SetFloatEntry(table, key, const column[], Float:value);
+native bool:DB::SetStringEntry(table, key, const column[], const value[]);
+native DBResult:DB::Query(query[], bool:keepresult = false);
+native bool:DB::MultiSet(table, key, const fmat[], {_, Float}:...);
+native bool:DB::MultiGet(table, key, const fmat[], {_, Float}:...);
+native DB::CountColumns(table);
+native DB::CountRows(table);
+native DB::SortFloatData(table, const column[], keys[], Float:values[], bool:decending = true, const conditions[] = "", len = sizeof(keys));
+native DB::SortIntData(table, const column[], keys[], values[], bool:decending = true, const conditions[] = "", len = sizeof(keys));
+*/
+
 //naming ease
 #define DB::      					DB_
 #define dbstatic    				stock static
@@ -29,7 +52,7 @@
 #endif
 
 #if ! defined DB_MAX_ALIVETIME
-	#define DB_MAX_ALIVETIME (2000)
+	#define DB_MAX_ALIVETIME (3000)
 #endif
 
 #if ! defined DB_MAX_ENTRY
@@ -62,9 +85,10 @@ enum DBType
 };
 
 //declaring variables
-dbstatic g_DatabaseName[DB::MAX_NAME] = DEFAULT_DATABASE_NAME;
-dbstatic DB:g_Database = DB_INVALID;
+dbstatic g_DatabaseName[DB::MAX_NAME];
+dbstatic DB:g_Database;
 dbstatic g_DatabaseTimer;
+dbstatic bool:g_Initialized;
 
 dbstatic g_TableName[DB::MAX_TABLES][DB::MAX_NAME];
 dbstatic g_TableKey[DB::MAX_TABLES][DB::MAX_NAME];
@@ -75,15 +99,15 @@ dbstatic g_Query[DB::MAX_QUERY];
 //Internal functions
 dbstatic bool:DB::Get()
 {
-    if (g_Database == DB::INVALID)
+    if (! g_Initialized)
     {
         return false;
     }
 
-	if (g_DatabaseTimer == -1)
+	if (! g_DatabaseTimer)
 	{
 		g_Database = db_open(g_DatabaseName);
-		
+
 		if (g_Database == DB_INVALID)
 		{
 			DB::Error("Unable to open the database \"%s\".", g_DatabaseName);
@@ -108,7 +132,7 @@ dbstatic bool:DB::Get()
 forward OnDBClose();
 public  OnDBClose()
 {
-	g_DatabaseTimer = -1;
+	g_DatabaseTimer = 0;
 
 	db_close(g_Database);
 	g_Database = DB_INVALID;
@@ -232,6 +256,7 @@ dbglobal bool:DB::Open(name[])
 	if (! name[0])
 	{
 		DB::Warning("The database name was not specified; default name will be applied (\""DEFAULT_DATABASE_NAME"\").");
+		g_DatabaseName = DEFAULT_DATABASE_NAME;
 	}
 	else
 	{
@@ -243,19 +268,26 @@ dbglobal bool:DB::Open(name[])
 	{
 		DB::Notice("The database \"%s\" doesn't exist; it will be created.", g_DatabaseName);
 
-		if (! DB::Get())
+        g_Database = db_open(name);
+  		if (! g_Database)
 		{
 			DB::Error("The database \"%s\" wasn't created, the include have unloaded.", g_DatabaseName);
 			return false;
 		}
+		else
+		{
+		    db_close(g_Database);
+		}
 	}
-	
+
 	for (new i; i < DB::MAX_TABLES; i++)
 	{
 	    g_TableName[i][0] = EOS;
 	    g_TableKey[i][0] = EOS;
 	}
 	g_TableCount = 0;
+	
+	g_Initialized = true;
 
 	print("[easydb.inc] Include loaded (Build 6).");
 	return true;
@@ -275,6 +307,8 @@ dbglobal bool:DB::Close()
 		OnDBClose();
 	}
 
+	g_Initialized = false;
+
 	return true;
 }
 
@@ -282,7 +316,7 @@ dbglobal DB::VerifyTable(const table[], const key[] = "ROW_ID")
 {
 	for (new i = 0; i < g_TableCount; i++)
 	{
-		if (! strcmp(g_TableName[i], table))
+		if (g_TableName[i][0] && ! strcmp(g_TableName[i], table))
 		{
 			return i;
 		}
@@ -315,7 +349,7 @@ dbglobal DB::VerifyTable(const table[], const key[] = "ROW_ID")
 
     g_TableName[g_TableCount][0] = EOS;
 	strcat(g_TableName[g_TableCount], table);
-	
+
     g_TableKey[g_TableCount][0] = EOS;
 	strcat(g_TableKey[g_TableCount], key);
 
@@ -353,7 +387,7 @@ dbglobal bool:DB::VerifyColumn(table, const column[], DBType:type, { _,Float }:.
 
 				format(g_Query, DB::MAX_QUERY, "ALTER TABLE `%s` ADD COLUMN `%s` INTEGER DEFAULT(%d)", g_TableName[table], column, default_value);
 			}
-			
+
 			case DB::TYPE_FLOAT:
 			{
 				new Float:default_value = 0.0;
@@ -395,7 +429,7 @@ dbglobal bool:DB::VerifyColumn(table, const column[], DBType:type, { _,Float }:.
 		    return false;
 		}
 	}
-	
+
 	return true;
 }
 
@@ -413,7 +447,7 @@ dbglobal DB::RetrieveKey(table, const column[], { _,Float }:...)
 
 	new args[DB::MAX_ENTRY * 2];
 	DB::getstringarg(args, 2);
-	
+
 	format(g_Query, DB::MAX_QUERY, "SELECT `%s` FROM `%s` WHERE `%s` = '%q'", g_TableKey[table], g_TableName[table], column, args);
 
 	new DBResult:result = db_query(g_Database, g_Query);
@@ -447,7 +481,7 @@ dbglobal bool:DB::CreateRow(table, const column[], { _,Float }:...)
 
 	new args[DB::MAX_ENTRY * 2];
 	DB::getstringarg(args, 2);
-	
+
     format(g_Query, DB::MAX_QUERY, "INSERT INTO `%s`(`%s`) VALUES('%q')", g_TableName[table], column, args);
 
 	new DBResult:result = db_query(g_Database, g_Query);
@@ -550,7 +584,7 @@ dbglobal bool:DB::GetStringEntry(table, key, const column[], get[], len = sizeof
 
 		return true;
 	}
-	
+
     get[0] = EOS;
 	return false;
 }
@@ -563,7 +597,7 @@ dbglobal bool:DB::SetIntEntry(table, key, const column[], value)
 	}
 
 	format(g_Query, DB::MAX_QUERY, "UPDATE `%s` SET `%s` = '%d' WHERE `%s` = '%d'", g_TableName[table], column, value, g_TableKey[table], key);
-	
+
 	new DBResult:result = db_query(g_Database, g_Query);
 	if (result)
 	{
@@ -649,7 +683,7 @@ dbglobal bool:DB::MultiSet(table, key, const fmat[], {_, Float}:...)
 	{
 		return false;
 	}
-	
+
     g_Query[0] = EOS;
 
 	for (new i, j = strlen(fmat); i < j; i++)
@@ -671,20 +705,20 @@ dbglobal bool:DB::MultiSet(table, key, const fmat[], {_, Float}:...)
 	new value[DB::MAX_ENTRY * 2];
 
 	g_Query = "UPDATE `";
-	strcat(g_Query, dest);
+	strcat(g_Query, g_TableName[table]);
 	strcat(g_Query, "` SET ");
 
 	for (new i, j = strlen(fmat); i < j; i++)
 	{
-		column_arg = 4 + i * 2;
+		column_arg = 3 + i * 2;
 
 		DB::getstringarg(column, column_arg);
 
 		++column_arg;
 
-		strcat(yoursql_Query, "`");
-		strcat(yoursql_Query, column);
-		strcat(yoursql_Query, "` = '");
+		strcat(g_Query, "`");
+		strcat(g_Query, column);
+		strcat(g_Query, "` = '");
 
 		switch (fmat[i])
 		{
@@ -711,13 +745,15 @@ dbglobal bool:DB::MultiSet(table, key, const fmat[], {_, Float}:...)
 		}
 	}
 
-	valstr(value, _:rowid);
+	valstr(value, key);
 
-	strcat(g_Query, " WHERE `ROW_ID` = '");
+	strcat(g_Query, " WHERE `");
+	strcat(g_Query, g_TableKey[table]);
+	strcat(g_Query, "` = '");
 	strcat(g_Query, value);
 	strcat(g_Query, "'");
-
-	db_free_result(db_query(g_Database, g_Query););
+	
+	db_free_result(db_query(g_Database, g_Query));
 	return true;
 }
 
@@ -727,7 +763,7 @@ dbglobal bool:DB::MultiGet(table, key, const fmat[], {_, Float}:...)
 	{
 		return false;
 	}
-	
+
 	new column[DB::MAX_NAME];
 	new column_arg;
 
@@ -735,7 +771,7 @@ dbglobal bool:DB::MultiGet(table, key, const fmat[], {_, Float}:...)
 
 	for (new i, j = strlen(fmat); i < j; i++)
 	{
-		column_arg = 4 + i * 2;
+		column_arg = 3 + i * 2;
 
 		DB::getstringarg(column, column_arg);
 
@@ -743,22 +779,26 @@ dbglobal bool:DB::MultiGet(table, key, const fmat[], {_, Float}:...)
 
 		if (i < j - 1)
 		{
-			strcat(yoursql_Query, "`, `");
+			strcat(g_Query, "`, `");
 		}
 	}
 
 	strcat(g_Query, "` FROM `");
-	strcat(g_Query, dest);
-	strcat(g_Query, "` WHERE `ROW_ID` = '");
+	strcat(g_Query, g_TableName[table]);
+	strcat(g_Query, "` WHERE `");
+	strcat(g_Query, g_TableKey[table]);
+	strcat(g_Query, "` = '");
 
 	new str_rowid[11];
 	new DBResult:result;
 
-	valstr(str_rowid, _:rowid);
+	valstr(str_rowid, key);
 	strcat(g_Query, str_rowid);
 	strcat(g_Query, "'");
 
+	print(g_Query);
 	result = db_query(g_Database, g_Query);
+	printf("%i", _:result);
 	if (result)
 	{
 	    new str[DB::MAX_ENTRY];
@@ -768,16 +808,16 @@ dbglobal bool:DB::MultiGet(table, key, const fmat[], {_, Float}:...)
 			{
 				case 'i', 'd':
 				{
-					setarg((4 + i * 2) + 1, .value = db_get_field_int(result, i));
+					setarg((3 + i * 2) + 1, .value = db_get_field_int(result, i));
 				}
 				case 'f':
 				{
-					setarg((4 + i * 2) + 1, .value = _:db_get_field_float(result, i));
+					setarg((3 + i * 2) + 1, .value = _:db_get_field_float(result, i));
 				}
 				case 's':
 				{
 					db_get_field(result, i, str, DB::MAX_ENTRY);
-					DB::setstringarg((4 + i * 2) + 1, str);
+					DB::setstringarg((3 + i * 2) + 1, str);
    				}
 			}
 		}
@@ -789,7 +829,7 @@ dbglobal bool:DB::MultiGet(table, key, const fmat[], {_, Float}:...)
 	return false;
 }
 
-dbglobal DB::CountColumns(SQL:id, const dest[])
+dbglobal DB::CountColumns(table)
 {
 	if (! DB::Get())
 	{
@@ -798,7 +838,7 @@ dbglobal DB::CountColumns(SQL:id, const dest[])
 
     g_Query[0] = EOS;
  	strcat(g_Query, "SELECT * FROM `");
-	strcat(g_Query, dest);
+	strcat(g_Query, g_TableName[table]);
 	strcat(g_Query, "` WHERE 1");
 
 	new DB:Result:result = db_query(g_Database, g_Query);
@@ -838,23 +878,6 @@ dbglobal DB::CountRows(table)
 
 	return 0;
 }
-
-#if defined WP_Hash
-
-	//declare DB::Hash as WP_Hash only if the plugin is loaded before the include
-    dbglobal DB::Hash(buffer[], len = sizeof(buffer), const str[]) //SAMP 0.3.7 R1 package
-	{
-		return WP_Hash(buffer, len, str);
-	}
-
-#else
-
-    dbglobal DB::Hash(buffer[], len = sizeof(buffer), str[], salt[] = "78sdjs86d2h") //SAMP 0.3.7 R1 package
-	{
-		return SHA256_PassHash(str, salt, buffer, len);
-	}
-
-#endif
 
 dbglobal DB::SortIntData(table, const column[], keys[], values[], bool:decending = true, const conditions[] = "", len = sizeof(keys))
 {
