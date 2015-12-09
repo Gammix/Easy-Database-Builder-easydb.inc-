@@ -73,7 +73,7 @@ native DB::SortIntData(table, const column[], keys[], values[], bool:decending =
 
 //invalid defines
 #define DB_INVALID           		(DB:0)
-#define DB_INVALID_KEY      		(-1)
+#define DB_INVALID_KEY      		(0)
 #define DB_INVALID_TABLE    		(-1)
 
 //column types enum
