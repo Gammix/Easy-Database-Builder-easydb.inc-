@@ -18,7 +18,7 @@ native bool:DB::Open(name[]);
 native bool:DB::Close();
 native DB::VerifyTable(const table[], const key[] = "ROW_ID");
 native bool:DB::VerifyColumn(table, const column[], DBType:type, { _,Float }:...);
-native DB::RetrieveKey(table, const column[], { _,Float }:...);
+native DB::RetrieveKey(table, keys[] = "", size = sizeof (keys), const column[], { _,Float }:...);
 native bool:DB::CreateRow(table, const column[], { _,Float }:...);
 native bool:DB::DeleteRow(table, key);
 native DB::GetIntEntry(table, key, const column[]);
