@@ -4,7 +4,7 @@
 #define easydb_included
 
 /*
-* Easydb.inc (SQLite) - Build 6
+* Easydb.inc (SQLite) - Build 7
 * Easy database builder is a library allowing you to create SQLite database without any SQL knowledge requirements.
 *
 * Credits:
@@ -286,10 +286,10 @@ dbglobal bool:DB::Open(name[])
 	    g_TableKey[i][0] = EOS;
 	}
 	g_TableCount = 0;
-	
+
 	g_Initialized = true;
 
-	print("[easydb.inc] Include loaded (Build 6).");
+	print("[easydb.inc] Include loaded (Build 7).");
 	return true;
 }
 
@@ -433,35 +433,54 @@ dbglobal bool:DB::VerifyColumn(table, const column[], DBType:type, { _,Float }:.
 	return true;
 }
 
-dbglobal DB::RetrieveKey(table, const column[], { _,Float }:...)
+dbglobal DB::RetrieveKey(table, keys[] = "", size = sizeof (keys), const column[], { _,Float }:...)
 {
 	if (! DB::Get())
 	{
 		return DB::INVALID_KEY;
 	}
 
-    if (numargs() != 3)
+    if (numargs() != 5)
 	{
 		return DB::INVALID_KEY;
 	}
 
 	new args[DB::MAX_ENTRY * 2];
-	DB::getstringarg(args, 2);
+	DB::getstringarg(args, 4);
 
 	format(g_Query, DB::MAX_QUERY, "SELECT `%s` FROM `%s` WHERE `%s` = '%q'", g_TableKey[table], g_TableName[table], column, args);
 
 	new DBResult:result = db_query(g_Database, g_Query);
 	if (result)
 	{
-		new key = DB::INVALID_KEY;
-		if (db_num_rows(result) == 1)
+	    if (! size)
+	    {
+	        new key = db_get_field_int(result, 0);
+
+			db_free_result(result);
+		
+		    return key;
+	    }
+
+		new rows = db_num_rows(result);
+		
+		for (new i; i < size; i++)
 		{
-			key = db_get_field_int(result, 0);
+		    if (i < rows)
+		    {
+				keys[i] = db_get_field_int(result, 0);
+
+				db_next_row(result);
+			}
+			else
+			{
+			    keys[i] = DB::INVALID_KEY;
+			}
 		}
 
 		db_free_result(result);
 
-		return key;
+		return keys[0];
 	}
 
 	return DB::INVALID_KEY;
@@ -523,10 +542,11 @@ dbglobal DB::GetIntEntry(table, key, const column[])
     new DBResult:result = db_query(g_Database, g_Query);
 	if (result)
 	{
-	    new value = 0;
-		if (db_num_rows(result) == 1)
-		{
-			value = db_get_field_int(result, 0);
+	    new value;
+	    
+	    if (db_num_rows(result))
+	    {
+	    	value = db_get_field_int(result, 0);
 		}
 
 		db_free_result(result);
@@ -549,9 +569,10 @@ dbglobal Float:DB::GetFloatEntry(table, key, const column[])
     new DBResult:result = db_query(g_Database, g_Query);
 	if (result)
 	{
-	    new Float:value = 0.0;
-		if (db_num_rows(result) == 1)
-		{
+	    new Float:value;
+
+	    if (db_num_rows(result))
+	    {
 			value = db_get_field_float(result, 0);
 		}
 
@@ -575,8 +596,8 @@ dbglobal bool:DB::GetStringEntry(table, key, const column[], get[], len = sizeof
     new DBResult:result = db_query(g_Database, g_Query);
 	if (result)
 	{
-		if (db_num_rows(result) == 1)
-		{
+	    if (db_num_rows(result))
+	    {
 			db_get_field(result, 0, get, len);
 		}
 
@@ -752,7 +773,7 @@ dbglobal bool:DB::MultiSet(table, key, const fmat[], {_, Float}:...)
 	strcat(g_Query, "` = '");
 	strcat(g_Query, value);
 	strcat(g_Query, "'");
-	
+
 	db_free_result(db_query(g_Database, g_Query));
 	return true;
 }
@@ -763,7 +784,7 @@ dbglobal bool:DB::MultiGet(table, key, const fmat[], {_, Float}:...)
 	{
 		return false;
 	}
-
+	
 	new column[DB::MAX_NAME];
 	new column_arg;
 
@@ -799,6 +820,12 @@ dbglobal bool:DB::MultiGet(table, key, const fmat[], {_, Float}:...)
 	result = db_query(g_Database, g_Query);
 	if (result)
 	{
+	    if (! db_num_rows(result))
+	    {
+			db_free_result(result);
+			return false;
+	    }
+	    
 	    new str[DB::MAX_ENTRY];
 		for (new i, j = db_num_fields(result); i < j; i++)
 		{
@@ -889,7 +916,7 @@ dbglobal DB::SortIntData(table, const column[], keys[], values[], bool:decending
 	new DBResult:result = db_query(g_Database, g_Query);
 	if (result)
 	{
-		if (db_num_rows(result) > 0)
+		if (db_num_rows(result))
 		{
 			new index = 0;
 
@@ -926,7 +953,7 @@ dbglobal DB::SortFloatData(table, const column[], keys[], Float:values[], bool:d
 	new DBResult:result = db_query(g_Database, g_Query);
 	if (result)
 	{
-		if (db_num_rows(result) > 0)
+		if (db_num_rows(result))
 		{
 			new index = 0;
 
